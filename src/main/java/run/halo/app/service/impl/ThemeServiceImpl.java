@@ -45,6 +45,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipInputStream;
@@ -62,31 +64,28 @@ import static run.halo.app.model.support.HaloConst.DEFAULT_THEME_ID;
 public class ThemeServiceImpl implements ThemeService {
 
     /**
+     * in seconds.
+     */
+    protected static final long ACTIVATED_THEME_SYNC_INTERVAL = 5;
+    /**
      * Theme work directory.
      */
     private final Path themeWorkDir;
-
     private final OptionService optionService;
-
     private final AbstractStringCacheStore cacheStore;
-
     private final ThemeConfigResolver themeConfigResolver;
-
     private final ThemePropertyResolver themePropertyResolver;
-
     private final RestTemplate restTemplate;
-
     private final ApplicationEventPublisher eventPublisher;
-
     /**
      * Activated theme id.
      */
-    private String activatedThemeId;
+    private volatile String activatedThemeId;
 
     /**
      * Activated theme property.
      */
-    private ThemeProperty activatedTheme;
+    private volatile ThemeProperty activatedTheme;
 
     public ThemeServiceImpl(HaloProperties haloProperties,
                             OptionService optionService,
@@ -103,6 +102,17 @@ public class ThemeServiceImpl implements ThemeService {
 
         themeWorkDir = Paths.get(haloProperties.getWorkDir(), THEME_FOLDER);
         this.eventPublisher = eventPublisher;
+        // check activated theme option changes every 5 seconds.
+        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
+            try {
+                String newActivatedThemeId = optionService.getByPropertyOrDefault(PrimaryProperties.THEME, String.class, DEFAULT_THEME_ID);
+                if (!activatedThemeId.equals(newActivatedThemeId)) {
+                    activateTheme(newActivatedThemeId);
+                }
+            } catch (Exception e) {
+                log.warn("theme option sync exception: {}", e);
+            }
+        }, ACTIVATED_THEME_SYNC_INTERVAL, ACTIVATED_THEME_SYNC_INTERVAL, TimeUnit.SECONDS);
     }
 
     @Override
